@@ -1,0 +1,24 @@
+[package]
+name = "orbital"
+version = "0.1.0"
+edition = "2021"
+description = "A zero-config cyberdeck terminal dashboard for developers"
+license = "MIT"
+keywords = ["tui", "dashboard", "terminal", "ratatui", "cyberdeck"]
+categories = ["command-line-interface"]
+
+[[bin]]
+name = "orbital"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+tokio = { version = "1", features = ["full"] }
+sysinfo = "0.33"
+chrono = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
