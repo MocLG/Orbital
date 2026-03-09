@@ -34,6 +34,11 @@ impl NetworkWidget {
         let networks = Networks::new_with_refreshed_list();
         self.interfaces = networks
             .iter()
+            .filter(|(name, data)| {
+                // Hide loopback and interfaces with zero traffic
+                !name.starts_with("lo")
+                    && (data.total_received() > 0 || data.total_transmitted() > 0)
+            })
             .map(|(name, data)| NetIface {
                 name: name.clone(),
                 rx_bytes: data.total_received(),
@@ -136,6 +141,10 @@ impl WidgetModule for NetworkWidget {
             }
             _ => false,
         }
+    }
+
+    fn is_visible(&self) -> bool {
+        !self.interfaces.is_empty()
     }
 
     fn status_hint(&self) -> String {

@@ -25,6 +25,12 @@ pub trait WidgetModule {
     /// Handle a keypress while focused — returns true if consumed
     fn handle_input(&mut self, event: KeyEvent) -> bool;
 
+    /// Whether this widget has meaningful data to show.
+    /// Returning false hides it from the grid entirely.
+    fn is_visible(&self) -> bool {
+        true
+    }
+
     /// Optional status line hint for the bottom bar
     fn status_hint(&self) -> String {
         String::new()

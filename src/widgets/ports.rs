@@ -172,6 +172,10 @@ impl WidgetModule for PortsWidget {
         }
     }
 
+    fn is_visible(&self) -> bool {
+        !self.ports.is_empty()
+    }
+
     fn status_hint(&self) -> String {
         "↑↓: scroll  Enter: refresh".into()
     }

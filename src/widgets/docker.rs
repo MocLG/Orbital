@@ -210,6 +210,10 @@ impl WidgetModule for DockerWidget {
         }
     }
 
+    fn is_visible(&self) -> bool {
+        !self.containers.is_empty()
+    }
+
     fn status_hint(&self) -> String {
         "↑↓: select  r: restart  s: stop  u: start  Enter: refresh".into()
     }
