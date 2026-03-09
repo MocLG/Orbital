@@ -355,6 +355,7 @@ fn compute_grid(area: Rect, count: usize) -> Vec<Rect> {
     let row_areas = Layout::default()
         .direction(Direction::Vertical)
         .constraints(row_constraints)
+        .spacing(0)
         .split(area);
 
     let mut rects = Vec::with_capacity(count);
@@ -375,33 +376,21 @@ fn compute_grid(area: Rect, count: usize) -> Vec<Rect> {
         let col_areas = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(col_constraints)
+            .spacing(0)
             .split(row_area);
 
-        for &cell in col_areas.iter() {
+        for (c, &cell) in col_areas.iter().enumerate() {
             if idx < count {
-                // Collapse shared borders: remove top border for rows > 0,
-                // remove left border for cols > 0 within the row.
-                let col_in_row = idx - (r * cols);
-                let adjusted = if r > 0 && col_in_row > 0 {
-                    Rect::new(
-                        cell.x.saturating_sub(1),
-                        cell.y.saturating_sub(1),
-                        cell.width + 1,
-                        cell.height + 1,
-                    )
-                } else if r > 0 {
-                    Rect::new(cell.x, cell.y.saturating_sub(1), cell.width, cell.height + 1)
-                } else if col_in_row > 0 {
-                    Rect::new(
-                        cell.x.saturating_sub(1),
-                        cell.y,
-                        cell.width + 1,
-                        cell.height,
-                    )
-                } else {
-                    cell
-                };
-                rects.push(adjusted);
+                // Overlap shared borders by expanding into the neighbor's 1px border.
+                // Clamp to the parent area so we never draw outside bounds.
+                let x = if c > 0 { cell.x.saturating_sub(1).max(area.x) } else { cell.x };
+                let y = if r > 0 { cell.y.saturating_sub(1).max(area.y) } else { cell.y };
+                let w = cell.width + if c > 0 { 1 } else { 0 };
+                let h = cell.height + if r > 0 { 1 } else { 0 };
+                // Clamp right/bottom edge to parent area
+                let w = w.min(area.x + area.width - x);
+                let h = h.min(area.y + area.height - y);
+                rects.push(Rect::new(x, y, w, h));
                 idx += 1;
             }
         }
