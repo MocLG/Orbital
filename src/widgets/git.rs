@@ -1,5 +1,5 @@
 use crate::theme::Theme;
-use crate::widgets::WidgetModule;
+use crate::widgets::{WidgetModule, WidgetAction};
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -186,14 +186,14 @@ impl WidgetModule for GitWidget {
         frame.render_stateful_widget(list, area, &mut state);
     }
 
-    fn handle_input(&mut self, event: KeyEvent) -> bool {
+    fn handle_input(&mut self, event: KeyEvent) -> WidgetAction {
         match event.code {
             KeyCode::Up => {
                 let i = self.state.selected().unwrap_or(0);
                 if i > 0 {
                     self.state.select(Some(i - 1));
                 }
-                true
+                WidgetAction::None
             }
             KeyCode::Down => {
                 let i = self.state.selected().unwrap_or(0);
@@ -204,7 +204,7 @@ impl WidgetModule for GitWidget {
                 if i + 1 < max {
                     self.state.select(Some(i + 1));
                 }
-                true
+                WidgetAction::None
             }
             KeyCode::Char('l') => {
                 self.view_mode = match self.view_mode {
@@ -212,7 +212,7 @@ impl WidgetModule for GitWidget {
                     ViewMode::Log => ViewMode::Changes,
                 };
                 self.state.select(Some(0));
-                true
+                WidgetAction::None
             }
             KeyCode::Char('c') => {
                 if !self.info.changes.is_empty() {
@@ -225,7 +225,7 @@ impl WidgetModule for GitWidget {
                     );
                     self.refresh();
                 }
-                true
+                WidgetAction::None
             }
             KeyCode::Char('p') => {
                 let result = run_git(&["push"]);
@@ -234,13 +234,13 @@ impl WidgetModule for GitWidget {
                         .map(|_| "pushed successfully".into())
                         .unwrap_or_else(|| "push failed".into()),
                 );
-                true
+                WidgetAction::None
             }
             KeyCode::Enter => {
                 self.refresh();
-                true
+                WidgetAction::None
             }
-            _ => false,
+            _ => WidgetAction::None,
         }
     }
 

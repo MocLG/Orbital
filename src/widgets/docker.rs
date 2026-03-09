@@ -1,5 +1,5 @@
 use crate::theme::Theme;
-use crate::widgets::WidgetModule;
+use crate::widgets::{WidgetModule, WidgetAction};
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -174,39 +174,39 @@ impl WidgetModule for DockerWidget {
         frame.render_stateful_widget(list, area, &mut state);
     }
 
-    fn handle_input(&mut self, event: KeyEvent) -> bool {
+    fn handle_input(&mut self, event: KeyEvent) -> WidgetAction {
         match event.code {
             KeyCode::Up => {
                 let i = self.state.selected().unwrap_or(0);
                 if i > 0 {
                     self.state.select(Some(i - 1));
                 }
-                true
+                WidgetAction::None
             }
             KeyCode::Down => {
                 let i = self.state.selected().unwrap_or(0);
                 if i + 1 < self.containers.len() {
                     self.state.select(Some(i + 1));
                 }
-                true
+                WidgetAction::None
             }
             KeyCode::Char('r') => {
                 self.docker_action("restart");
-                true
+                WidgetAction::None
             }
             KeyCode::Char('s') => {
                 self.docker_action("stop");
-                true
+                WidgetAction::None
             }
             KeyCode::Char('u') => {
                 self.docker_action("start");
-                true
+                WidgetAction::None
             }
             KeyCode::Enter => {
                 self.refresh();
-                true
+                WidgetAction::None
             }
-            _ => false,
+            _ => WidgetAction::None,
         }
     }
 

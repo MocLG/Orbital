@@ -1,5 +1,5 @@
 use crate::theme::Theme;
-use crate::widgets::WidgetModule;
+use crate::widgets::{WidgetModule, WidgetAction};
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -153,23 +153,23 @@ impl WidgetModule for DiskWidget {
         }
     }
 
-    fn handle_input(&mut self, event: KeyEvent) -> bool {
+    fn handle_input(&mut self, event: KeyEvent) -> WidgetAction {
         match event.code {
             KeyCode::Up => {
                 self.scroll = self.scroll.saturating_sub(1);
-                true
+                WidgetAction::None
             }
             KeyCode::Down => {
                 if self.scroll + 1 < self.disks.len() {
                     self.scroll += 1;
                 }
-                true
+                WidgetAction::None
             }
             KeyCode::Enter => {
                 self.refresh();
-                true
+                WidgetAction::None
             }
-            _ => false,
+            _ => WidgetAction::None,
         }
     }
 

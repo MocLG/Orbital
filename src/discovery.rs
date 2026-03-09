@@ -24,6 +24,15 @@ pub fn discover() -> Vec<Box<dyn WidgetModule>> {
     // ── Listening ports — always useful for devs ──
     modules.push(Box::new(crate::widgets::ports::PortsWidget::new()));
 
+    // ── Spectre — active TCP connections ──
+    modules.push(Box::new(crate::widgets::spectre::SpectreWidget::new()));
+
+    // ── Vault — local config files (.env, Cargo.toml, etc.) ──
+    let vault = crate::widgets::vault::VaultWidget::new();
+    if vault.has_files() {
+        modules.push(Box::new(vault));
+    }
+
     // Init all
     for m in modules.iter_mut() {
         m.init();

@@ -3,11 +3,18 @@ pub mod git;
 pub mod network;
 pub mod ports;
 pub mod processes;
+pub mod spectre;
 pub mod system;
 pub mod disk;
+pub mod vault;
 
 use crossterm::event::KeyEvent;
 use ratatui::{layout::Rect, Frame};
+
+pub enum WidgetAction {
+    None,
+    SuspendAndEdit(String),
+}
 
 pub trait WidgetModule {
     /// Human-friendly name for the widget
@@ -22,8 +29,8 @@ pub trait WidgetModule {
     /// Render into the given area
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool);
 
-    /// Handle a keypress while focused — returns true if consumed
-    fn handle_input(&mut self, event: KeyEvent) -> bool;
+    /// Handle a keypress while focused — returns a WidgetAction
+    fn handle_input(&mut self, event: KeyEvent) -> WidgetAction;
 
     /// Whether this widget has meaningful data to show.
     /// Returning false hides it from the grid entirely.
