@@ -1,15 +1,17 @@
 use crate::theme::Theme;
-use crate::widgets::WidgetModule;
+use crate::widgets::{WidgetModule, WidgetAction};
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Gauge, Paragraph},
+    widgets::{Block, BorderType, Borders, Gauge, Paragraph, Sparkline},
     Frame,
 };
 use sysinfo::System;
+
+const HISTORY_LEN: usize = 40;
 
 pub struct SystemWidget {
     sys: System,
@@ -21,6 +23,8 @@ pub struct SystemWidget {
     os_name: String,
     cpu_name: String,
     cpu_count: usize,
+    cpu_history: Vec<u64>,
+    mem_history: Vec<u64>,
 }
 
 impl SystemWidget {
@@ -35,6 +39,8 @@ impl SystemWidget {
             os_name: String::new(),
             cpu_name: String::new(),
             cpu_count: 0,
+            cpu_history: Vec::with_capacity(HISTORY_LEN),
+            mem_history: Vec::with_capacity(HISTORY_LEN),
         }
     }
 
@@ -46,6 +52,21 @@ impl SystemWidget {
         self.mem_total = self.sys.total_memory();
         self.mem_used = self.sys.used_memory();
         self.uptime = System::uptime();
+
+        // Push to history ring
+        self.cpu_history.push(self.cpu_usage as u64);
+        if self.cpu_history.len() > HISTORY_LEN {
+            self.cpu_history.remove(0);
+        }
+        let mem_pct = if self.mem_total > 0 {
+            (self.mem_used as f64 / self.mem_total as f64 * 100.0) as u64
+        } else {
+            0
+        };
+        self.mem_history.push(mem_pct);
+        if self.mem_history.len() > HISTORY_LEN {
+            self.mem_history.remove(0);
+        }
     }
 }
 
@@ -78,17 +99,25 @@ impl WidgetModule for SystemWidget {
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {
-        let (border_style, title_style) = if is_focused {
+        // Threshold alert: if CPU or RAM > 85%, border goes red
+        let alert = self.cpu_usage > 85.0
+            || (self.mem_total > 0 && (self.mem_used as f64 / self.mem_total as f64) > 0.85);
+
+        let (border_style, title_style) = if alert {
+            (Theme::bad(), Style::default().fg(Theme::RED).add_modifier(Modifier::BOLD))
+        } else if is_focused {
             (Theme::border_focused(), Theme::title_focused())
         } else {
             (Theme::border_unfocused(), Theme::title_unfocused())
         };
 
+        let title = if alert { " ◈ System ⚠ " } else { " ◈ System " };
+
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(border_style)
-            .title(" ◈ System ")
+            .title(title)
             .title_style(title_style)
             .style(Style::default().bg(Theme::BG));
 
@@ -100,6 +129,7 @@ impl WidgetModule for SystemWidget {
             .constraints([
                 Constraint::Length(3), // info
                 Constraint::Length(2), // cpu gauge
+                Constraint::Length(2), // cpu sparkline
                 Constraint::Length(2), // mem gauge
                 Constraint::Min(0),   // padding
             ])
@@ -130,7 +160,7 @@ impl WidgetModule for SystemWidget {
 
         // CPU gauge
         let cpu_pct = self.cpu_usage as f64 / 100.0;
-        let cpu_color = if self.cpu_usage > 80.0 {
+        let cpu_color = if self.cpu_usage > 85.0 {
             Theme::RED
         } else if self.cpu_usage > 50.0 {
             Theme::AMBER
@@ -148,13 +178,20 @@ impl WidgetModule for SystemWidget {
             .ratio(cpu_pct.clamp(0.0, 1.0));
         frame.render_widget(cpu_gauge, chunks[1]);
 
+        // CPU sparkline
+        let cpu_spark = Sparkline::default()
+            .data(&self.cpu_history)
+            .max(100)
+            .style(Style::default().fg(Theme::CYAN).bg(Theme::SURFACE));
+        frame.render_widget(cpu_spark, chunks[2]);
+
         // Memory gauge
         let mem_pct = if self.mem_total > 0 {
             self.mem_used as f64 / self.mem_total as f64
         } else {
             0.0
         };
-        let mem_color = if mem_pct > 0.8 {
+        let mem_color = if mem_pct > 0.85 {
             Theme::RED
         } else if mem_pct > 0.5 {
             Theme::AMBER
@@ -172,15 +209,15 @@ impl WidgetModule for SystemWidget {
             ))
             .gauge_style(Style::default().fg(mem_color).bg(Theme::SURFACE))
             .ratio(mem_pct.clamp(0.0, 1.0));
-        frame.render_widget(mem_gauge, chunks[2]);
+        frame.render_widget(mem_gauge, chunks[3]);
     }
 
-    fn handle_input(&mut self, event: KeyEvent) -> bool {
+    fn handle_input(&mut self, event: KeyEvent) -> WidgetAction {
         if event.code == KeyCode::Enter {
             self.refresh();
-            return true;
+            return WidgetAction::None;
         }
-        false
+        WidgetAction::None
     }
 
     fn status_hint(&self) -> String {

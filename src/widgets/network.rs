@@ -1,25 +1,34 @@
 use crate::theme::Theme;
-use crate::widgets::WidgetModule;
+use crate::widgets::{WidgetModule, WidgetAction};
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph, Sparkline},
     Frame,
 };
 use sysinfo::Networks;
+
+const HISTORY_LEN: usize = 40;
 
 struct NetIface {
     name: String,
     rx_bytes: u64,
     tx_bytes: u64,
+    rx_rate: u64,
+    tx_rate: u64,
 }
 
 pub struct NetworkWidget {
     interfaces: Vec<NetIface>,
     scroll: usize,
+    rx_history: Vec<u64>,
+    tx_history: Vec<u64>,
+    networks: Networks,
+    prev_rx: u64,
+    prev_tx: u64,
 }
 
 impl NetworkWidget {
@@ -27,15 +36,19 @@ impl NetworkWidget {
         Self {
             interfaces: Vec::new(),
             scroll: 0,
+            rx_history: Vec::with_capacity(HISTORY_LEN),
+            tx_history: Vec::with_capacity(HISTORY_LEN),
+            networks: Networks::new_with_refreshed_list(),
+            prev_rx: 0,
+            prev_tx: 0,
         }
     }
 
     fn refresh(&mut self) {
-        let networks = Networks::new_with_refreshed_list();
-        self.interfaces = networks
+        self.networks.refresh(true);
+        self.interfaces = self.networks
             .iter()
             .filter(|(name, data)| {
-                // Hide loopback and interfaces with zero traffic
                 !name.starts_with("lo")
                     && (data.total_received() > 0 || data.total_transmitted() > 0)
             })
@@ -43,10 +56,26 @@ impl NetworkWidget {
                 name: name.clone(),
                 rx_bytes: data.total_received(),
                 tx_bytes: data.total_transmitted(),
+                rx_rate: data.received(),
+                tx_rate: data.transmitted(),
             })
             .collect();
         self.interfaces
             .sort_by(|a, b| b.rx_bytes.cmp(&a.rx_bytes));
+
+        // Aggregate total RX/TX rate for sparkline
+        let total_rx: u64 = self.interfaces.iter().map(|i| i.rx_rate).sum();
+        let total_tx: u64 = self.interfaces.iter().map(|i| i.tx_rate).sum();
+        self.rx_history.push(total_rx / 1024); // KB/s
+        if self.rx_history.len() > HISTORY_LEN {
+            self.rx_history.remove(0);
+        }
+        self.tx_history.push(total_tx / 1024);
+        if self.tx_history.len() > HISTORY_LEN {
+            self.tx_history.remove(0);
+        }
+        self.prev_rx = total_rx;
+        self.prev_tx = total_tx;
     }
 }
 
@@ -87,7 +116,37 @@ impl WidgetModule for NetworkWidget {
             return;
         }
 
-        let visible = inner.height as usize / 2;
+        // Layout: sparklines on top, then interface list
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2), // RX sparkline
+                Constraint::Length(2), // TX sparkline
+                Constraint::Min(2),   // interface list
+            ])
+            .split(inner);
+
+        // RX sparkline
+        let rx_label = format!("▼ RX {} KB/s", self.prev_rx / 1024);
+        let rx_spark = Sparkline::default()
+            .data(&self.rx_history)
+            .style(Style::default().fg(Theme::NEON_GREEN).bg(Theme::SURFACE));
+        let rx_line = Paragraph::new(Line::from(Span::styled(rx_label, Style::default().fg(Theme::NEON_GREEN))));
+        frame.render_widget(rx_line, Rect::new(chunks[0].x, chunks[0].y, chunks[0].width, 1));
+        frame.render_widget(rx_spark, Rect::new(chunks[0].x, chunks[0].y + 1, chunks[0].width, 1));
+
+        // TX sparkline
+        let tx_label = format!("▲ TX {} KB/s", self.prev_tx / 1024);
+        let tx_spark = Sparkline::default()
+            .data(&self.tx_history)
+            .style(Style::default().fg(Theme::MAGENTA).bg(Theme::SURFACE));
+        let tx_line = Paragraph::new(Line::from(Span::styled(tx_label, Style::default().fg(Theme::MAGENTA))));
+        frame.render_widget(tx_line, Rect::new(chunks[1].x, chunks[1].y, chunks[1].width, 1));
+        frame.render_widget(tx_spark, Rect::new(chunks[1].x, chunks[1].y + 1, chunks[1].width, 1));
+
+        // Interface list below
+        let list_area = chunks[2];
+        let visible = list_area.height as usize / 2;
         let end = (self.scroll + visible).min(self.interfaces.len());
         let shown = &self.interfaces[self.scroll..end];
 
@@ -120,26 +179,26 @@ impl WidgetModule for NetworkWidget {
             .collect();
 
         let paragraph = Paragraph::new(lines);
-        frame.render_widget(paragraph, inner);
+        frame.render_widget(paragraph, list_area);
     }
 
-    fn handle_input(&mut self, event: KeyEvent) -> bool {
+    fn handle_input(&mut self, event: KeyEvent) -> WidgetAction {
         match event.code {
             KeyCode::Up => {
                 self.scroll = self.scroll.saturating_sub(1);
-                true
+                WidgetAction::None
             }
             KeyCode::Down => {
                 if self.scroll + 1 < self.interfaces.len() {
                     self.scroll += 1;
                 }
-                true
+                WidgetAction::None
             }
             KeyCode::Enter => {
                 self.refresh();
-                true
+                WidgetAction::None
             }
-            _ => false,
+            _ => WidgetAction::None,
         }
     }
 
