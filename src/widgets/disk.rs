@@ -10,9 +10,10 @@ use ratatui::{
     Frame,
 };
 use sysinfo::Disks;
+use std::collections::HashSet;
 
 struct DiskInfo {
-    name: String,
+    device: String,
     mount: String,
     total: u64,
     used: u64,
@@ -33,19 +34,64 @@ impl DiskWidget {
 
     fn refresh(&mut self) {
         let disk_list = Disks::new_with_refreshed_list();
-        self.disks = disk_list
-            .iter()
-            .map(|d| {
-                let total = d.total_space();
-                let available = d.available_space();
-                DiskInfo {
-                    name: d.name().to_string_lossy().to_string(),
-                    mount: d.mount_point().to_string_lossy().to_string(),
-                    total,
-                    used: total.saturating_sub(available),
+        let mut seen = HashSet::new();
+        let mut entries: Vec<DiskInfo> = Vec::new();
+
+        for d in disk_list.iter() {
+            let total = d.total_space();
+            if total == 0 {
+                continue;
+            }
+
+            let device = d.name().to_string_lossy().to_string();
+            if device.is_empty() {
+                continue;
+            }
+
+            let mount = d.mount_point().to_string_lossy().to_string();
+
+            // Filter out virtual/temporary/loop filesystems
+            if mount.starts_with("/snap")
+                || mount.starts_with("/run")
+                || mount.starts_with("/sys")
+                || mount.starts_with("/proc")
+                || mount.starts_with("/dev")
+            {
+                continue;
+            }
+            if device.starts_with("/dev/loop") {
+                continue;
+            }
+            let fs = d.file_system().to_string_lossy().to_string();
+            if fs == "tmpfs" || fs == "devtmpfs" || fs == "squashfs" || fs == "overlay" {
+                continue;
+            }
+
+            let available = d.available_space();
+            let used = total.saturating_sub(available);
+
+            // Deduplicate by device name — prefer "/" mount, otherwise first seen
+            if seen.contains(&device) {
+                if mount == "/" {
+                    // Replace existing entry with root mount
+                    if let Some(existing) = entries.iter_mut().find(|e| e.device == device) {
+                        existing.mount = mount;
+                        existing.total = total;
+                        existing.used = used;
+                    }
                 }
-            })
-            .collect();
+                continue;
+            }
+
+            seen.insert(device.clone());
+            entries.push(DiskInfo {
+                device,
+                mount,
+                total,
+                used,
+            });
+        }
+        self.disks = entries;
     }
 }
 
@@ -122,13 +168,13 @@ impl WidgetModule for DiskWidget {
 
             let label_line = Paragraph::new(Line::from(vec![
                 Span::styled(
-                    format!("{} ", disk.name),
+                    format!("{} ", disk.device),
                     Style::default()
                         .fg(Theme::CYAN)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("({})", disk.mount),
+                    format!("on {}", disk.mount),
                     Style::default().fg(Theme::DIM),
                 ),
             ]));
