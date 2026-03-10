@@ -6,7 +6,7 @@ use crate::widgets::{WidgetAction, WidgetModule};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph, Sparkline},
@@ -53,6 +53,8 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<Stdout>>,
         mut events: EventHandler,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.boot_sequence(terminal)?;
+
         while self.running {
             terminal.draw(|frame| self.draw(frame))?;
 
@@ -199,7 +201,7 @@ impl App {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Thick)
             .border_style(Style::default().fg(Theme::MAGENTA))
             .style(Style::default().bg(Theme::BG));
 
@@ -227,6 +229,7 @@ impl App {
         for (vi, (orig_idx, widget)) in visible.iter().enumerate() {
             if let Some(&rect) = areas.get(vi) {
                 widget.render(frame, rect, *orig_idx == self.focused);
+                apply_scanlines(frame, rect);
             }
         }
     }
@@ -234,7 +237,7 @@ impl App {
     fn render_empty_state(&self, frame: &mut Frame, area: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Thick)
             .border_style(Style::default().fg(Theme::DIM))
             .style(Style::default().bg(Theme::BG));
 
@@ -381,14 +384,86 @@ impl App {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Double)
             .border_style(Style::default().fg(Theme::CYAN))
-            .title(" Help ")
+            .title("[ HELP ]")
             .title_style(Theme::title_focused())
             .style(Style::default().bg(Theme::BG));
 
         let help = Paragraph::new(help_lines).block(block);
         frame.render_widget(help, rect);
+    }
+
+    fn boot_sequence(
+        &self,
+        terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let hex = "0123456789ABCDEF";
+        let hex_bytes = hex.as_bytes();
+
+        for frame_idx in 0..10u32 {
+            terminal.draw(|frame| {
+                let size = frame.area();
+                let bg = Block::default().style(Style::default().bg(Theme::BG));
+                frame.render_widget(bg, size);
+
+                let mut lines: Vec<Line> = Vec::new();
+                for row in 0..size.height.saturating_sub(2) {
+                    let mut spans = Vec::new();
+                    for col in (0..size.width).step_by(3) {
+                        let seed = (row as u32)
+                            .wrapping_mul(31)
+                            .wrapping_add(col as u32)
+                            .wrapping_mul(7)
+                            .wrapping_add(frame_idx.wrapping_mul(13));
+                        let h1 = hex_bytes[(seed & 0xF) as usize] as char;
+                        let h2 = hex_bytes[((seed >> 4) & 0xF) as usize] as char;
+                        let bright = ((seed >> 8) & 0x3) == 0;
+                        let fg = if bright { Theme::CYAN } else { Theme::DIM };
+                        spans.push(Span::styled(
+                            format!("{h1}{h2} "),
+                            Style::default().fg(fg),
+                        ));
+                        let _ = col; // suppress unused
+                    }
+                    lines.push(Line::from(spans));
+                }
+
+                // Overlay status text
+                let status = if frame_idx < 6 {
+                    "DECRYPTING..."
+                } else {
+                    "ORBITAL ONLINE"
+                };
+                let msg_y = size.height / 2;
+                if (msg_y as usize) < lines.len() {
+                    lines[msg_y as usize] = Line::from(vec![
+                        Span::styled(
+                            format!("{:^width$}", status, width = size.width as usize),
+                            Style::default()
+                                .fg(if frame_idx < 6 { Theme::MAGENTA } else { Theme::NEON_GREEN })
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]);
+                }
+
+                let para = Paragraph::new(lines);
+                frame.render_widget(para, size);
+            })?;
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        Ok(())
+    }
+}
+
+fn apply_scanlines(frame: &mut Frame, area: Rect) {
+    let buf = frame.buffer_mut();
+    for y in (area.top() + 1..area.bottom().saturating_sub(1)).step_by(2) {
+        for x in (area.left() + 1)..area.right().saturating_sub(1) {
+            if let Some(cell) = buf.cell_mut(Position::new(x, y)) {
+                cell.set_bg(Theme::SCANLINE_BG);
+            }
+        }
     }
 }
 
