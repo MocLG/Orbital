@@ -4,14 +4,16 @@ use crate::widgets::{WidgetModule, WidgetAction};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
+    symbols::Marker,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Gauge, Paragraph, Sparkline},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
+use ratatui::widgets::canvas::{Canvas, Line as CLine};
 use sysinfo::System;
 
-const HISTORY_LEN: usize = 40;
+const HISTORY_LEN: usize = 100;
 
 pub struct SystemWidget {
     sys: System,
@@ -103,19 +105,19 @@ impl WidgetModule for SystemWidget {
         let alert = self.cpu_usage > 85.0
             || (self.mem_total > 0 && (self.mem_used as f64 / self.mem_total as f64) > 0.85);
 
-        let (border_style, title_style) = if alert {
-            (Theme::bad(), Style::default().fg(Theme::RED).add_modifier(Modifier::BOLD))
+        let (border_type, border_style, title_style) = if alert {
+            (BorderType::Thick, Theme::bad(), Style::default().fg(Theme::RED).add_modifier(Modifier::BOLD))
         } else if is_focused {
-            (Theme::border_focused(), Theme::title_focused())
+            (BorderType::Double, Theme::border_focused(), Theme::title_focused())
         } else {
-            (Theme::border_unfocused(), Theme::title_unfocused())
+            (BorderType::Thick, Theme::border_unfocused(), Theme::title_unfocused())
         };
 
-        let title = if alert { " ◈ System ⚠ " } else { " ◈ System " };
+        let title = if alert { "[ SYSTEM ⚠ ]" } else { "[ SYSTEM ]" };
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(border_type)
             .border_style(border_style)
             .title(title)
             .title_style(title_style)
@@ -128,10 +130,8 @@ impl WidgetModule for SystemWidget {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // info
-                Constraint::Length(2), // cpu gauge
-                Constraint::Length(2), // cpu sparkline
-                Constraint::Length(2), // mem gauge
-                Constraint::Min(0),   // padding
+                Constraint::Min(3),   // CPU braille
+                Constraint::Min(3),   // RAM braille
             ])
             .split(inner);
 
@@ -158,8 +158,7 @@ impl WidgetModule for SystemWidget {
         ]);
         frame.render_widget(info, chunks[0]);
 
-        // CPU gauge
-        let cpu_pct = self.cpu_usage as f64 / 100.0;
+        // CPU braille graph
         let cpu_color = if self.cpu_usage > 85.0 {
             Theme::RED
         } else if self.cpu_usage > 50.0 {
@@ -167,25 +166,48 @@ impl WidgetModule for SystemWidget {
         } else {
             Theme::CYAN
         };
-        let cpu_gauge = Gauge::default()
-            .label(Span::styled(
-                format!("CPU {:.1}%", self.cpu_usage),
-                Style::default()
-                    .fg(Theme::SOFT_WHITE)
-                    .add_modifier(Modifier::BOLD),
-            ))
-            .gauge_style(Style::default().fg(cpu_color).bg(Theme::SURFACE))
-            .ratio(cpu_pct.clamp(0.0, 1.0));
-        frame.render_widget(cpu_gauge, chunks[1]);
+        let cpu_rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(2)])
+            .split(chunks[1]);
+        let cpu_label = Paragraph::new(Span::styled(
+            format!("CPU {:.1}%", self.cpu_usage),
+            Style::default().fg(cpu_color).add_modifier(Modifier::BOLD),
+        ));
+        frame.render_widget(cpu_label, cpu_rows[0]);
 
-        // CPU sparkline
-        let cpu_spark = Sparkline::default()
-            .data(&self.cpu_history)
-            .max(100)
-            .style(Style::default().fg(Theme::CYAN).bg(Theme::SURFACE));
-        frame.render_widget(cpu_spark, chunks[2]);
+        let cpu_data = self.cpu_history.clone();
+        let cpu_len = cpu_data.len();
+        let cpu_canvas = Canvas::default()
+            .marker(Marker::Braille)
+            .x_bounds([0.0, HISTORY_LEN as f64])
+            .y_bounds([0.0, 100.0])
+            .background_color(Theme::SURFACE)
+            .paint(move |ctx| {
+                for i in 1..cpu_len {
+                    let age = i as f64 / cpu_len as f64;
+                    let val = cpu_data[i] as f64;
+                    let color = if val > 85.0 {
+                        Color::Rgb(255, 0, 200)
+                    } else {
+                        Color::Rgb(
+                            (30.0 * (1.0 - age)) as u8,
+                            (60.0 + 195.0 * age) as u8,
+                            (180.0 + 75.0 * age) as u8,
+                        )
+                    };
+                    ctx.draw(&CLine {
+                        x1: (i - 1) as f64,
+                        y1: cpu_data[i - 1] as f64,
+                        x2: i as f64,
+                        y2: val,
+                        color,
+                    });
+                }
+            });
+        frame.render_widget(cpu_canvas, cpu_rows[1]);
 
-        // Memory gauge
+        // RAM braille graph
         let mem_pct = if self.mem_total > 0 {
             self.mem_used as f64 / self.mem_total as f64
         } else {
@@ -200,16 +222,46 @@ impl WidgetModule for SystemWidget {
         };
         let mem_used_gb = self.mem_used as f64 / 1_073_741_824.0;
         let mem_total_gb = self.mem_total as f64 / 1_073_741_824.0;
-        let mem_gauge = Gauge::default()
-            .label(Span::styled(
-                format!("RAM {:.1}/{:.1} GB", mem_used_gb, mem_total_gb),
-                Style::default()
-                    .fg(Theme::SOFT_WHITE)
-                    .add_modifier(Modifier::BOLD),
-            ))
-            .gauge_style(Style::default().fg(mem_color).bg(Theme::SURFACE))
-            .ratio(mem_pct.clamp(0.0, 1.0));
-        frame.render_widget(mem_gauge, chunks[3]);
+        let mem_rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(2)])
+            .split(chunks[2]);
+        let mem_label = Paragraph::new(Span::styled(
+            format!("RAM {:.1}/{:.1} GB ({:.0}%)", mem_used_gb, mem_total_gb, mem_pct * 100.0),
+            Style::default().fg(mem_color).add_modifier(Modifier::BOLD),
+        ));
+        frame.render_widget(mem_label, mem_rows[0]);
+
+        let mem_data = self.mem_history.clone();
+        let mem_len = mem_data.len();
+        let mem_canvas = Canvas::default()
+            .marker(Marker::Braille)
+            .x_bounds([0.0, HISTORY_LEN as f64])
+            .y_bounds([0.0, 100.0])
+            .background_color(Theme::SURFACE)
+            .paint(move |ctx| {
+                for i in 1..mem_len {
+                    let age = i as f64 / mem_len as f64;
+                    let val = mem_data[i] as f64;
+                    let color = if val > 85.0 {
+                        Color::Rgb(255, 0, 200)
+                    } else {
+                        Color::Rgb(
+                            (30.0 * (1.0 - age)) as u8,
+                            (60.0 + 195.0 * age) as u8,
+                            (180.0 + 75.0 * age) as u8,
+                        )
+                    };
+                    ctx.draw(&CLine {
+                        x1: (i - 1) as f64,
+                        y1: mem_data[i - 1] as f64,
+                        x2: i as f64,
+                        y2: val,
+                        color,
+                    });
+                }
+            });
+        frame.render_widget(mem_canvas, mem_rows[1]);
     }
 
     fn handle_input(&mut self, event: KeyEvent) -> WidgetAction {
