@@ -97,17 +97,17 @@ impl WidgetModule for PortsWidget {
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {
-        let (border_style, title_style) = if is_focused {
-            (Theme::border_focused(), Theme::title_focused())
+        let (border_type, border_style, title_style) = if is_focused {
+            (BorderType::Double, Theme::border_focused(), Theme::title_focused())
         } else {
-            (Theme::border_unfocused(), Theme::title_unfocused())
+            (BorderType::Thick, Theme::border_unfocused(), Theme::title_unfocused())
         };
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(border_type)
             .border_style(border_style)
-            .title(format!(" ◈ Listening Ports [{}] ", self.ports.len()))
+            .title(format!("[ PORTS {} ]", self.ports.len()))
             .title_style(title_style)
             .style(Style::default().bg(Theme::BG));
 

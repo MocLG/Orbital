@@ -14,9 +14,14 @@ impl Theme {
     pub const SURFACE: Color = Color::Rgb(25, 25, 40);
     pub const RED: Color = Color::Rgb(255, 85, 85);
     pub const BLUE: Color = Color::Rgb(100, 149, 237);
+    pub const TOXIC_ORANGE: Color = Color::Rgb(255, 140, 0);
+    pub const GLOW_WHITE: Color = Color::Rgb(240, 240, 255);
+    pub const SCANLINE_BG: Color = Color::Rgb(18, 18, 30);
 
     pub fn border_focused() -> Style {
-        Style::default().fg(Self::CYAN)
+        Style::default()
+            .fg(Self::GLOW_WHITE)
+            .add_modifier(Modifier::BOLD)
     }
 
     pub fn border_unfocused() -> Style {

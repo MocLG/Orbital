@@ -93,20 +93,20 @@ impl WidgetModule for GitWidget {
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {
-        let (border_style, title_style) = if is_focused {
-            (Theme::border_focused(), Theme::title_focused())
+        let (border_type, border_style, title_style) = if is_focused {
+            (BorderType::Double, Theme::border_focused(), Theme::title_focused())
         } else {
-            (Theme::border_unfocused(), Theme::title_unfocused())
+            (BorderType::Thick, Theme::border_unfocused(), Theme::title_unfocused())
         };
 
-        let branch_display = format!(" ◈ Git [{} ← {}] ", 
+        let branch_display = format!("[ GIT {} :: {} ]", 
             if self.view_mode == ViewMode::Changes { "changes" } else { "log" },
             self.info.branch
         );
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(border_type)
             .border_style(border_style)
             .title(branch_display)
             .title_style(title_style)
