@@ -79,17 +79,17 @@ impl WidgetModule for SpectreWidget {
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {
-        let (border_style, title_style) = if is_focused {
-            (Theme::border_focused(), Theme::title_focused())
+        let (border_type, border_style, title_style) = if is_focused {
+            (BorderType::Double, Theme::border_focused(), Theme::title_focused())
         } else {
-            (Theme::border_unfocused(), Theme::title_unfocused())
+            (BorderType::Thick, Theme::border_unfocused(), Theme::title_unfocused())
         };
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(border_type)
             .border_style(border_style)
-            .title(format!(" ◈ Spectre [{}] ", self.connections.len()))
+            .title(format!("[ SPECTRE {} ]", self.connections.len()))
             .title_style(title_style)
             .style(Style::default().bg(Theme::BG));
 
@@ -108,7 +108,7 @@ impl WidgetModule for SpectreWidget {
                     let remote_style = if is_local {
                         Theme::text()
                     } else {
-                        Theme::warn()
+                        Style::default().fg(Theme::TOXIC_ORANGE).add_modifier(Modifier::BOLD)
                     };
 
                     let state_color = match c.state.as_str() {
@@ -126,11 +126,11 @@ impl WidgetModule for SpectreWidget {
                                 .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
-                            format!("{} ", truncate(&c.local, 22)),
+                            format!("{} ", truncate(&c.local, 20)),
                             Theme::text(),
                         ),
-                        Span::styled("→ ", Style::default().fg(Theme::MAGENTA)),
-                        Span::styled(truncate(&c.remote, 22), remote_style),
+                        Span::styled("➜ ", Style::default().fg(Theme::MAGENTA).add_modifier(Modifier::BOLD)),
+                        Span::styled(truncate(&c.remote, 20), remote_style),
                     ]))
                 })
                 .collect()

@@ -64,17 +64,17 @@ impl WidgetModule for VaultWidget {
     fn update_state(&mut self) {}
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {
-        let (border_style, title_style) = if is_focused {
-            (Theme::border_focused(), Theme::title_focused())
+        let (border_type, border_style, title_style) = if is_focused {
+            (BorderType::Double, Theme::border_focused(), Theme::title_focused())
         } else {
-            (Theme::border_unfocused(), Theme::title_unfocused())
+            (BorderType::Thick, Theme::border_unfocused(), Theme::title_unfocused())
         };
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(border_type)
             .border_style(border_style)
-            .title(format!(" ◈ Vault [{}] ", self.files.len()))
+            .title(format!("[ VAULT {} ]", self.files.len()))
             .title_style(title_style)
             .style(Style::default().bg(Theme::BG));
 
@@ -82,16 +82,26 @@ impl WidgetModule for VaultWidget {
             .files
             .iter()
             .map(|f| {
-                let icon = if f.ends_with(".toml") || f.ends_with(".json") || f.ends_with(".yaml") || f.ends_with(".yml") {
-                    "⚙"
+                let icon = if f == "Cargo.toml" {
+                    "\u{e7a8} " // Rust
+                } else if f.ends_with(".toml") {
+                    "\u{e615} " // Config
+                } else if f == "package.json" || f == "tsconfig.json" {
+                    "\u{e718} " // JS/Node
+                } else if f == "pyproject.toml" {
+                    "\u{e73c} " // Python
+                } else if f == "go.mod" {
+                    "\u{e626} " // Go
                 } else if f.starts_with(".env") {
-                    "🔑"
+                    "\u{f023} " // Lock/Key
                 } else if f.starts_with("Dockerfile") || f.starts_with("docker-compose") {
-                    "🐳"
+                    "\u{f308} " // Docker
                 } else if f == "Makefile" {
-                    "⚒"
+                    "\u{f085} " // Gears
+                } else if f == ".gitignore" {
+                    "\u{e702} " // Git
                 } else {
-                    "📄"
+                    "\u{f15b} " // File
                 };
 
                 ListItem::new(Line::from(vec![
