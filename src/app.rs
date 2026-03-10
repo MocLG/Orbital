@@ -1,7 +1,7 @@
 use crate::discovery;
 use crate::event::{AppEvent, EventHandler};
 use crate::theme::Theme;
-use crate::widgets::WidgetModule;
+use crate::widgets::{WidgetAction, WidgetModule};
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::{
@@ -9,10 +9,12 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph, Sparkline},
     Frame, Terminal,
 };
 use std::io::Stdout;
+
+const HEARTBEAT_LEN: usize = 40;
 
 pub struct App {
     pub widgets: Vec<Box<dyn WidgetModule>>,
@@ -20,16 +22,25 @@ pub struct App {
     pub running: bool,
     pub show_help: bool,
     tick_count: u64,
+    heartbeat: Vec<u64>,
+    heartbeat_phase: f64,
 }
 
 impl App {
     pub fn new() -> Self {
+        let mut heartbeat = vec![0u64; HEARTBEAT_LEN];
+        for i in 0..HEARTBEAT_LEN {
+            let phase = (i as f64) * std::f64::consts::PI * 2.0 / HEARTBEAT_LEN as f64;
+            heartbeat[i] = ((phase.sin() + 1.0) * 4.0) as u64;
+        }
         Self {
             widgets: Vec::new(),
             focused: 0,
             running: true,
             show_help: false,
             tick_count: 0,
+            heartbeat,
+            heartbeat_phase: 0.0,
         }
     }
 
@@ -93,13 +104,40 @@ impl App {
                         _ => {
                             // Route to focused widget
                             if let Some(w) = self.widgets.get_mut(self.focused) {
-                                w.handle_input(key);
+                                match w.handle_input(key) {
+                                    WidgetAction::SuspendAndEdit(path) => {
+                                        // Leave TUI, open editor, resume
+                                        crossterm::terminal::disable_raw_mode()?;
+                                        crossterm::execute!(
+                                            std::io::stdout(),
+                                            crossterm::terminal::LeaveAlternateScreen
+                                        )?;
+                                        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
+                                        let _ = std::process::Command::new(&editor)
+                                            .arg(&path)
+                                            .status();
+                                        crossterm::execute!(
+                                            std::io::stdout(),
+                                            crossterm::terminal::EnterAlternateScreen
+                                        )?;
+                                        crossterm::terminal::enable_raw_mode()?;
+                                        terminal.clear()?;
+                                    }
+                                    WidgetAction::None => {}
+                                }
                             }
                         }
                     }
                 }
                 Some(AppEvent::Tick) => {
                     self.tick_count += 1;
+                    // Advance heartbeat oscilloscope
+                    self.heartbeat_phase += 0.3;
+                    for i in 0..HEARTBEAT_LEN {
+                        let phase = self.heartbeat_phase
+                            + (i as f64) * std::f64::consts::PI * 2.0 / HEARTBEAT_LEN as f64;
+                        self.heartbeat[i] = ((phase.sin() + 1.0) * 4.0) as u64;
+                    }
                     // Update every 4 ticks (~1s at 250ms tick)
                     if self.tick_count % 4 == 0 {
                         for w in self.widgets.iter_mut() {
@@ -128,7 +166,7 @@ impl App {
             .constraints([
                 Constraint::Length(3), // header
                 Constraint::Min(10),   // body
-                Constraint::Length(1), // footer
+                Constraint::Length(2), // footer
             ])
             .split(size);
 
@@ -233,6 +271,36 @@ impl App {
             })
             .unwrap_or_default();
 
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1)])
+            .split(area);
+
+        // Row 1: heartbeat sparkline
+        let hb_label_width = 6u16; // "PULSE "
+        let hb_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(hb_label_width),
+                Constraint::Min(10),
+            ])
+            .split(rows[0]);
+
+        let label = Paragraph::new(Span::styled(
+            "PULSE ",
+            Style::default()
+                .fg(Theme::MAGENTA)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().bg(Theme::SURFACE));
+        frame.render_widget(label, hb_chunks[0]);
+
+        let spark = Sparkline::default()
+            .data(&self.heartbeat)
+            .style(Style::default().fg(Theme::CYAN).bg(Theme::SURFACE));
+        frame.render_widget(spark, hb_chunks[1]);
+
+        // Row 2: key hints + focused widget
         let footer = Paragraph::new(Line::from(vec![
             Span::styled(" ◂ Tab ▸ ", Theme::key_hint()),
             Span::styled("navigate  ", Theme::text()),
@@ -252,7 +320,7 @@ impl App {
         ]))
         .style(Style::default().bg(Theme::SURFACE));
 
-        frame.render_widget(footer, area);
+        frame.render_widget(footer, rows[1]);
     }
 
     fn render_help_overlay(&self, frame: &mut Frame, area: Rect) {
