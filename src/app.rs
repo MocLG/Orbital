@@ -148,6 +148,38 @@ impl App {
                                             eprintln!("Failed to launch editor: {err}");
                                         }
                                     }
+                                    WidgetAction::SuspendAndRun(cmd) => {
+                                        terminal.show_cursor()?;
+                                        terminal.flush()?;
+                                        crossterm::terminal::disable_raw_mode()?;
+                                        crossterm::execute!(
+                                            std::io::stdout(),
+                                            crossterm::terminal::LeaveAlternateScreen,
+                                            crossterm::cursor::Show
+                                        )?;
+                                        std::io::stdout().flush()?;
+
+                                        let status = std::process::Command::new("sh")
+                                            .arg("-lc")
+                                            .arg(&cmd)
+                                            .stdin(std::process::Stdio::inherit())
+                                            .stdout(std::process::Stdio::inherit())
+                                            .stderr(std::process::Stdio::inherit())
+                                            .status();
+
+                                        crossterm::execute!(
+                                            std::io::stdout(),
+                                            crossterm::terminal::EnterAlternateScreen,
+                                            crossterm::cursor::Hide
+                                        )?;
+                                        crossterm::terminal::enable_raw_mode()?;
+                                        terminal.clear()?;
+                                        terminal.draw(|frame| self.draw(frame))?;
+
+                                        if let Err(err) = status {
+                                            eprintln!("Failed to launch AI tool: {err}");
+                                        }
+                                    }
                                     WidgetAction::None => {}
                                 }
                             }

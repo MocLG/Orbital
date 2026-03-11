@@ -33,6 +33,9 @@ pub fn discover() -> Vec<Box<dyn WidgetModule>> {
         modules.push(Box::new(vault));
     }
 
+    // ── AI Intel — AI CLI tool discovery ──
+    modules.push(Box::new(crate::widgets::ai_intel::AiIntelWidget::new()));
+
     // Init all
     for m in modules.iter_mut() {
         m.init();

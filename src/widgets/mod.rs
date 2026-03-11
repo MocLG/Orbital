@@ -7,6 +7,7 @@ pub mod spectre;
 pub mod system;
 pub mod disk;
 pub mod vault;
+pub mod ai_intel;
 
 use crossterm::event::KeyEvent;
 use ratatui::{layout::Rect, Frame};
@@ -14,6 +15,7 @@ use ratatui::{layout::Rect, Frame};
 pub enum WidgetAction {
     None,
     SuspendAndEdit(String),
+    SuspendAndRun(String),
 }
 
 pub trait WidgetModule {
