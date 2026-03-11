@@ -40,8 +40,7 @@ impl Theme {
 
     pub fn highlight() -> Style {
         Style::default()
-            .fg(Self::BG)
-            .bg(Self::CYAN)
+            .fg(Self::CYAN)
             .add_modifier(Modifier::BOLD)
     }
 
