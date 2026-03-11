@@ -9,7 +9,10 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState},
     Frame,
 };
-use std::process::Command;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 struct Connection {
     local: String,
@@ -18,50 +21,53 @@ struct Connection {
 }
 
 pub struct SpectreWidget {
-    connections: Vec<Connection>,
+    connections: Arc<Mutex<Vec<Connection>>>,
     state: ListState,
+    last_refresh: Instant,
 }
 
 impl SpectreWidget {
     pub fn new() -> Self {
         Self {
-            connections: Vec::new(),
+            connections: Arc::new(Mutex::new(Vec::new())),
             state: ListState::default(),
+            last_refresh: Instant::now() - REFRESH_INTERVAL,
         }
     }
 
-    fn refresh(&mut self) {
-        self.connections.clear();
+    fn spawn_scan(&self) {
+        let data = Arc::clone(&self.connections);
+        tokio::spawn(async move {
+            let output = tokio::process::Command::new("ss")
+                .args(["-tnp"])
+                .output()
+                .await;
 
-        let output = Command::new("ss")
-            .args(["-tnp"])
-            .output();
-
-        if let Ok(out) = output {
-            if out.status.success() {
-                let text = String::from_utf8_lossy(&out.stdout);
-                self.connections = text
-                    .lines()
-                    .skip(1)
-                    .filter_map(|line| {
-                        let cols: Vec<&str> = line.split_whitespace().collect();
-                        if cols.len() >= 5 {
-                            Some(Connection {
-                                state: cols.first().unwrap_or(&"").to_string(),
-                                local: cols.get(3).unwrap_or(&"").to_string(),
-                                remote: cols.get(4).unwrap_or(&"").to_string(),
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+            if let Ok(out) = output {
+                if out.status.success() {
+                    let text = String::from_utf8_lossy(&out.stdout);
+                    let conns: Vec<Connection> = text
+                        .lines()
+                        .skip(1)
+                        .filter_map(|line| {
+                            let cols: Vec<&str> = line.split_whitespace().collect();
+                            if cols.len() >= 5 {
+                                Some(Connection {
+                                    state: cols.first().unwrap_or(&"").to_string(),
+                                    local: cols.get(3).unwrap_or(&"").to_string(),
+                                    remote: cols.get(4).unwrap_or(&"").to_string(),
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    if let Ok(mut lock) = data.lock() {
+                        *lock = conns;
+                    }
+                }
             }
-        }
-
-        if self.state.selected().is_none() && !self.connections.is_empty() {
-            self.state.select(Some(0));
-        }
+        });
     }
 }
 
@@ -71,11 +77,19 @@ impl WidgetModule for SpectreWidget {
     }
 
     fn init(&mut self) {
-        self.refresh();
+        self.spawn_scan();
     }
 
     fn update_state(&mut self) {
-        self.refresh();
+        if self.last_refresh.elapsed() >= REFRESH_INTERVAL {
+            self.spawn_scan();
+            self.last_refresh = Instant::now();
+        }
+        // Update selection if connections changed
+        let conns = self.connections.lock().unwrap_or_else(|e| e.into_inner());
+        if self.state.selected().is_none() && !conns.is_empty() {
+            self.state.select(Some(0));
+        }
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {
@@ -85,21 +99,23 @@ impl WidgetModule for SpectreWidget {
             (BorderType::Thick, Theme::border_unfocused(), Theme::title_unfocused())
         };
 
+        let conns = self.connections.lock().unwrap_or_else(|e| e.into_inner());
+
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(border_type)
             .border_style(border_style)
-            .title(format!("[ SPECTRE {} ]", self.connections.len()))
+            .title(format!("[ SPECTRE {} ]", conns.len()))
             .title_style(title_style)
             .style(Style::default().bg(Theme::BG));
 
-        let items: Vec<ListItem> = if self.connections.is_empty() {
+        let items: Vec<ListItem> = if conns.is_empty() {
             vec![ListItem::new(Line::from(Span::styled(
                 "No active connections",
                 Theme::label(),
             )))]
         } else {
-            self.connections
+            conns
                 .iter()
                 .map(|c| {
                     let is_local = c.remote.starts_with("127.0.0.1")
@@ -154,14 +170,16 @@ impl WidgetModule for SpectreWidget {
                 WidgetAction::None
             }
             KeyCode::Down => {
+                let conns = self.connections.lock().unwrap_or_else(|e| e.into_inner());
                 let i = self.state.selected().unwrap_or(0);
-                if i + 1 < self.connections.len() {
+                if i + 1 < conns.len() {
                     self.state.select(Some(i + 1));
                 }
                 WidgetAction::None
             }
             KeyCode::Enter => {
-                self.refresh();
+                self.spawn_scan();
+                self.last_refresh = Instant::now();
                 WidgetAction::None
             }
             _ => WidgetAction::None,
@@ -169,7 +187,8 @@ impl WidgetModule for SpectreWidget {
     }
 
     fn is_visible(&self) -> bool {
-        !self.connections.is_empty()
+        let conns = self.connections.lock().unwrap_or_else(|e| e.into_inner());
+        !conns.is_empty()
     }
 
     fn status_hint(&self) -> String {
