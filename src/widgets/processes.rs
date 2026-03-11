@@ -10,6 +10,9 @@ use ratatui::{
     Frame,
 };
 use sysinfo::System;
+use std::time::{Duration, Instant};
+
+const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
 struct ProcInfo {
     pid: u32,
@@ -23,6 +26,7 @@ pub struct ProcessesWidget {
     procs: Vec<ProcInfo>,
     state: ListState,
     last_action: Option<String>,
+    last_refresh: Instant,
 }
 
 impl ProcessesWidget {
@@ -32,6 +36,7 @@ impl ProcessesWidget {
             procs: Vec::new(),
             state: ListState::default(),
             last_action: None,
+            last_refresh: Instant::now() - REFRESH_INTERVAL,
         }
     }
 
@@ -70,7 +75,10 @@ impl WidgetModule for ProcessesWidget {
     }
 
     fn update_state(&mut self) {
-        self.refresh();
+        if self.last_refresh.elapsed() >= REFRESH_INTERVAL {
+            self.refresh();
+            self.last_refresh = Instant::now();
+        }
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {

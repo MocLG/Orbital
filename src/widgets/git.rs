@@ -10,6 +10,9 @@ use ratatui::{
     Frame,
 };
 use std::process::Command;
+use std::time::{Duration, Instant};
+
+const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 struct GitInfo {
     branch: String,
@@ -22,6 +25,7 @@ pub struct GitWidget {
     info: GitInfo,
     state: ListState,
     view_mode: ViewMode,
+    last_refresh: Instant,
 }
 
 #[derive(PartialEq)]
@@ -41,6 +45,7 @@ impl GitWidget {
             },
             state: ListState::default(),
             view_mode: ViewMode::Changes,
+            last_refresh: Instant::now() - REFRESH_INTERVAL,
         }
     }
 
@@ -89,7 +94,10 @@ impl WidgetModule for GitWidget {
     }
 
     fn update_state(&mut self) {
-        self.refresh();
+        if self.last_refresh.elapsed() >= REFRESH_INTERVAL {
+            self.refresh();
+            self.last_refresh = Instant::now();
+        }
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {

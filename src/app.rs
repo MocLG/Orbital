@@ -140,11 +140,9 @@ impl App {
                             + (i as f64) * std::f64::consts::PI * 2.0 / HEARTBEAT_LEN as f64;
                         self.heartbeat[i] = ((phase.sin() + 1.0) * 4.0) as u64;
                     }
-                    // Update every 4 ticks (~1s at 250ms tick)
-                    if self.tick_count % 4 == 0 {
-                        for w in self.widgets.iter_mut() {
-                            w.update_state();
-                        }
+                    // Update widgets every tick — each widget throttles internally
+                    for w in self.widgets.iter_mut() {
+                        w.update_state();
                     }
                 }
                 None => {

@@ -10,6 +10,9 @@ use ratatui::{
     Frame,
 };
 use std::process::Command;
+use std::time::{Duration, Instant};
+
+const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 struct PortEntry {
     proto: String,
@@ -20,6 +23,7 @@ struct PortEntry {
 pub struct PortsWidget {
     ports: Vec<PortEntry>,
     state: ListState,
+    last_refresh: Instant,
 }
 
 impl PortsWidget {
@@ -27,6 +31,7 @@ impl PortsWidget {
         Self {
             ports: Vec::new(),
             state: ListState::default(),
+            last_refresh: Instant::now() - REFRESH_INTERVAL,
         }
     }
 
@@ -93,7 +98,10 @@ impl WidgetModule for PortsWidget {
     }
 
     fn update_state(&mut self) {
-        self.refresh();
+        if self.last_refresh.elapsed() >= REFRESH_INTERVAL {
+            self.refresh();
+            self.last_refresh = Instant::now();
+        }
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {

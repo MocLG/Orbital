@@ -10,6 +10,9 @@ use ratatui::{
     Frame,
 };
 use std::process::Command;
+use std::time::{Duration, Instant};
+
+const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 struct Container {
     id: String,
@@ -23,6 +26,7 @@ pub struct DockerWidget {
     containers: Vec<Container>,
     state: ListState,
     last_action: Option<String>,
+    last_refresh: Instant,
 }
 
 impl DockerWidget {
@@ -31,6 +35,7 @@ impl DockerWidget {
             containers: Vec::new(),
             state: ListState::default(),
             last_action: None,
+            last_refresh: Instant::now() - REFRESH_INTERVAL,
         }
     }
 
@@ -96,7 +101,10 @@ impl WidgetModule for DockerWidget {
     }
 
     fn update_state(&mut self) {
-        self.refresh();
+        if self.last_refresh.elapsed() >= REFRESH_INTERVAL {
+            self.refresh();
+            self.last_refresh = Instant::now();
+        }
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {

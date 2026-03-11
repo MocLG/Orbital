@@ -11,6 +11,9 @@ use ratatui::{
 };
 use sysinfo::Disks;
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
+
+const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 struct DiskInfo {
     device: String,
@@ -22,6 +25,7 @@ struct DiskInfo {
 pub struct DiskWidget {
     disks: Vec<DiskInfo>,
     scroll: usize,
+    last_refresh: Instant,
 }
 
 impl DiskWidget {
@@ -29,6 +33,7 @@ impl DiskWidget {
         Self {
             disks: Vec::new(),
             scroll: 0,
+            last_refresh: Instant::now() - REFRESH_INTERVAL,
         }
     }
 
@@ -105,7 +110,10 @@ impl WidgetModule for DiskWidget {
     }
 
     fn update_state(&mut self) {
-        self.refresh();
+        if self.last_refresh.elapsed() >= REFRESH_INTERVAL {
+            self.refresh();
+            self.last_refresh = Instant::now();
+        }
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {
