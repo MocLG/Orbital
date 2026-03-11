@@ -10,6 +10,9 @@ use ratatui::{
     Frame,
 };
 use std::path::Path;
+use std::time::{Duration, Instant};
+
+const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 
 const CONFIG_FILES: &[&str] = &[
     ".env",
@@ -29,6 +32,7 @@ const CONFIG_FILES: &[&str] = &[
 pub struct VaultWidget {
     files: Vec<String>,
     state: ListState,
+    last_refresh: Instant,
 }
 
 impl VaultWidget {
@@ -42,6 +46,7 @@ impl VaultWidget {
         Self {
             files,
             state: ListState::default(),
+            last_refresh: Instant::now(),
         }
     }
 
@@ -61,7 +66,16 @@ impl WidgetModule for VaultWidget {
         }
     }
 
-    fn update_state(&mut self) {}
+    fn update_state(&mut self) {
+        if self.last_refresh.elapsed() >= REFRESH_INTERVAL {
+            self.files = CONFIG_FILES
+                .iter()
+                .filter(|f| Path::new(f).exists())
+                .map(|f| f.to_string())
+                .collect();
+            self.last_refresh = Instant::now();
+        }
+    }
 
     fn render(&self, frame: &mut Frame, area: Rect, is_focused: bool) {
         let (border_type, border_style, title_style) = if is_focused {

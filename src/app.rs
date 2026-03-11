@@ -108,19 +108,26 @@ impl App {
                             if let Some(w) = self.widgets.get_mut(self.focused) {
                                 match w.handle_input(key) {
                                     WidgetAction::SuspendAndEdit(path) => {
-                                        // Leave TUI, open editor, resume
+                                        // Leave TUI, show cursor, open editor, resume
                                         crossterm::terminal::disable_raw_mode()?;
                                         crossterm::execute!(
                                             std::io::stdout(),
-                                            crossterm::terminal::LeaveAlternateScreen
+                                            crossterm::terminal::LeaveAlternateScreen,
+                                            crossterm::cursor::Show
                                         )?;
-                                        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
+                                        let editor = std::env::var("EDITOR")
+                                            .or_else(|_| std::env::var("VISUAL"))
+                                            .unwrap_or_else(|_| "vi".into());
                                         let _ = std::process::Command::new(&editor)
                                             .arg(&path)
+                                            .stdin(std::process::Stdio::inherit())
+                                            .stdout(std::process::Stdio::inherit())
+                                            .stderr(std::process::Stdio::inherit())
                                             .status();
                                         crossterm::execute!(
                                             std::io::stdout(),
-                                            crossterm::terminal::EnterAlternateScreen
+                                            crossterm::terminal::EnterAlternateScreen,
+                                            crossterm::cursor::Hide
                                         )?;
                                         crossterm::terminal::enable_raw_mode()?;
                                         terminal.clear()?;
