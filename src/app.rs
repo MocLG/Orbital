@@ -12,7 +12,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph, Sparkline},
     Frame, Terminal,
 };
-use std::io::Stdout;
+use std::io::{Stdout, Write};
 
 const HEARTBEAT_LEN: usize = 40;
 
@@ -109,21 +109,32 @@ impl App {
                                 match w.handle_input(key) {
                                     WidgetAction::SuspendAndEdit(path) => {
                                         // Leave TUI, show cursor, open editor, resume
+                                        terminal.show_cursor()?;
+                                        terminal.flush()?;
                                         crossterm::terminal::disable_raw_mode()?;
                                         crossterm::execute!(
                                             std::io::stdout(),
                                             crossterm::terminal::LeaveAlternateScreen,
                                             crossterm::cursor::Show
                                         )?;
+                                        std::io::stdout().flush()?;
+
                                         let editor = std::env::var("EDITOR")
                                             .or_else(|_| std::env::var("VISUAL"))
-                                            .unwrap_or_else(|_| "vi".into());
-                                        let _ = std::process::Command::new(&editor)
-                                            .arg(&path)
+                                            .ok()
+                                            .filter(|value| !value.trim().is_empty())
+                                            .unwrap_or_else(|| "nano".into());
+                                        let escaped_path = path.replace('\'' , "'\"'\"'");
+                                        let command = format!("{editor} '{escaped_path}'");
+
+                                        let status = std::process::Command::new("sh")
+                                            .arg("-lc")
+                                            .arg(command)
                                             .stdin(std::process::Stdio::inherit())
                                             .stdout(std::process::Stdio::inherit())
                                             .stderr(std::process::Stdio::inherit())
                                             .status();
+
                                         crossterm::execute!(
                                             std::io::stdout(),
                                             crossterm::terminal::EnterAlternateScreen,
@@ -131,6 +142,11 @@ impl App {
                                         )?;
                                         crossterm::terminal::enable_raw_mode()?;
                                         terminal.clear()?;
+                                        terminal.draw(|frame| self.draw(frame))?;
+
+                                        if let Err(err) = status {
+                                            eprintln!("Failed to launch editor: {err}");
+                                        }
                                     }
                                     WidgetAction::None => {}
                                 }
