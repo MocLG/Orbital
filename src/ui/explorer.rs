@@ -261,8 +261,8 @@ impl Explorer {
             .collect();
 
         let mut spans = vec![Span::styled(
-            " ",
-            Style::default().fg(Theme::AMBER).add_modifier(Modifier::BOLD),
+            "◈ ",
+            Style::default().fg(Theme::MAGENTA).add_modifier(Modifier::BOLD),
         )];
 
         for (i, comp) in components.iter().enumerate() {
@@ -419,6 +419,8 @@ impl Explorer {
     fn render_explorer_footer(&self, frame: &mut Frame, area: Rect) {
         let status = self.status_msg.as_deref().unwrap_or("");
         let count = self.entries.len();
+        let dir_count = self.entries.iter().filter(|e| e.is_dir).count();
+        let file_count = count - dir_count;
         let total_str = scanner::format_size(self.total_size);
 
         let rows = Layout::default()
@@ -435,11 +437,11 @@ impl Explorer {
         } else {
             Line::from(vec![
                 Span::styled(
-                    format!(" {count} entries"),
+                    format!("  {dir_count} dirs   {file_count} files"),
                     Style::default().fg(Theme::DIM),
                 ),
                 Span::styled(
-                    format!("  Total: {total_str}"),
+                    format!("  ◈ {total_str}"),
                     Style::default().fg(Theme::CYAN).add_modifier(Modifier::BOLD),
                 ),
             ])
