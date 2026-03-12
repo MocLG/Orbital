@@ -16,6 +16,7 @@ pub enum WidgetAction {
     None,
     SuspendAndEdit(String),
     SuspendAndRun(String),
+    OpenExplorer(String),
 }
 
 pub trait WidgetModule {

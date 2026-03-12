@@ -1,6 +1,7 @@
 use crate::discovery;
 use crate::event::{AppEvent, EventHandler};
 use crate::theme::Theme;
+use crate::ui::explorer::Explorer;
 use crate::widgets::{WidgetAction, WidgetModule};
 
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -21,6 +22,7 @@ pub struct App {
     pub focused: usize,
     pub running: bool,
     pub show_help: bool,
+    pub explorer: Explorer,
     tick_count: u64,
     heartbeat: Vec<u64>,
     heartbeat_phase: f64,
@@ -38,6 +40,7 @@ impl App {
             focused: 0,
             running: true,
             show_help: false,
+            explorer: Explorer::new(),
             tick_count: 0,
             heartbeat,
             heartbeat_phase: 0.0,
@@ -60,6 +63,11 @@ impl App {
 
             match events.next().await {
                 Some(AppEvent::Key(key)) => {
+                    // Explorer overlay takes priority when active
+                    if self.explorer.active {
+                        self.explorer.handle_input(key);
+                        continue;
+                    }
                     // Global keys first
                     match (key.code, key.modifiers) {
                         (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _) => {
@@ -180,6 +188,9 @@ impl App {
                                             eprintln!("Failed to launch AI tool: {err}");
                                         }
                                     }
+                                    WidgetAction::OpenExplorer(path) => {
+                                        self.explorer.open(std::path::PathBuf::from(path));
+                                    }
                                     WidgetAction::None => {}
                                 }
                             }
@@ -194,6 +205,10 @@ impl App {
                         let phase = self.heartbeat_phase
                             + (i as f64) * std::f64::consts::PI * 2.0 / HEARTBEAT_LEN as f64;
                         self.heartbeat[i] = ((phase.sin() + 1.0) * 4.0) as u64;
+                    }
+                    // Update explorer if active
+                    if self.explorer.active {
+                        self.explorer.update();
                     }
                     // Update widgets every tick — each widget throttles internally
                     for w in self.widgets.iter_mut() {
@@ -231,6 +246,11 @@ impl App {
 
         if self.show_help {
             self.render_help_overlay(frame, size);
+        }
+
+        // Explorer overlay (drawn last, on top of everything)
+        if self.explorer.active {
+            self.explorer.render(frame, size);
         }
     }
 
@@ -423,6 +443,10 @@ impl App {
             Line::from(vec![
                 Span::styled(" r / s ", Theme::key_hint()),
                 Span::styled("Restart / Stop (Docker)", Theme::text()),
+            ]),
+            Line::from(vec![
+                Span::styled(" l ", Theme::key_hint()),
+                Span::styled("Disk Explorer (Disks)", Theme::text()),
             ]),
             Line::from(vec![
                 Span::styled(" Enter ", Theme::key_hint()),

@@ -1,7 +1,9 @@
 mod app;
 mod discovery;
 mod event;
+mod ops;
 mod theme;
+mod ui;
 mod widgets;
 
 use app::App;

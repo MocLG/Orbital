@@ -223,11 +223,19 @@ impl WidgetModule for DiskWidget {
                 self.refresh();
                 WidgetAction::None
             }
+            KeyCode::Char('l') => {
+                // Open explorer at the mount point of the currently scrolled disk
+                if let Some(disk) = self.disks.get(self.scroll) {
+                    WidgetAction::OpenExplorer(disk.mount.clone())
+                } else {
+                    WidgetAction::OpenExplorer("/".into())
+                }
+            }
             _ => WidgetAction::None,
         }
     }
 
     fn status_hint(&self) -> String {
-        "↑↓: scroll  Enter: refresh".into()
+        "↑↓: scroll  Enter: refresh  l: explore".into()
     }
 }
