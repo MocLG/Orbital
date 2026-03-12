@@ -55,7 +55,8 @@ impl Scanner {
         }
 
         thread::spawn(move || {
-            match scan_directory(&dir) {
+            let root_dev = device_id(&dir);
+            match scan_directory(&dir, root_dev) {
                 Ok(result) => {
                     if let Ok(mut s) = state.lock() {
                         *s = ScanState::Done(result);
@@ -90,14 +91,11 @@ fn device_id(path: &Path) -> Option<u64> {
     fs::metadata(path).ok().map(|m| m.dev())
 }
 
-/// Scan a single directory level, computing recursive sizes for subdirectories.
-/// Stays on the same filesystem device as `dir` (like `ncdu -x`).
-fn scan_directory(dir: &Path) -> Result<ScanResult, String> {
+/// Scan a single directory level, computing recursive sizes for all subdirs.
+/// For cross-device mount points (e.g. /home on a separate partition),
+/// scans them using their own device ID so sizes are computed correctly.
+fn scan_directory(dir: &Path, root_dev: Option<u64>) -> Result<ScanResult, String> {
     let read_dir = fs::read_dir(dir).map_err(|e| format!("Cannot read {}: {}", dir.display(), e))?;
-
-    // Get the device ID of the directory we're scanning so we can
-    // skip mount points for other filesystems.
-    let root_dev = device_id(dir);
 
     let mut entries = Vec::new();
     let mut total_size: u64 = 0;
@@ -106,7 +104,6 @@ fn scan_directory(dir: &Path) -> Result<ScanResult, String> {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        // Skip virtual filesystems entirely
         if is_virtual_fs(&path) {
             continue;
         }
@@ -120,17 +117,11 @@ fn scan_directory(dir: &Path) -> Result<ScanResult, String> {
         let modified = meta.modified().ok();
         let readonly = meta.permissions().readonly();
 
-        // Same-device check: skip dirs that are on a different filesystem
-        if is_dir {
-            if let Some(root) = root_dev {
-                if meta.dev() != root {
-                    continue;
-                }
-            }
-        }
-
         let size = if is_dir {
-            dir_size_jwalk(&path, root_dev)
+            // For cross-device dirs, use the child's own device ID
+            // so jwalk scans within that filesystem
+            let child_dev = Some(meta.dev());
+            dir_size_jwalk(&path, child_dev)
         } else {
             meta.len()
         };
@@ -147,7 +138,6 @@ fn scan_directory(dir: &Path) -> Result<ScanResult, String> {
         });
     }
 
-    // Sort by size descending
     entries.sort_by(|a, b| b.size.cmp(&a.size));
 
     Ok(ScanResult {
@@ -212,6 +202,7 @@ const PROTECTED_PATHS: &[&str] = &[
     "/proc",
     "/sys",
     "/dev",
+    "/home",
     "/root",
     "/snap",
     "/lost+found",
