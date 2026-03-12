@@ -28,9 +28,12 @@
 
 ## Features
 
-- **🔮 Zero-Config Auto-Discovery** — Just run `orbital`. It detects git repos, Docker daemons, listening ports, and system stats automatically.
-- **⚡ Interactive Widgets** — Not read-only. Kill processes, commit & push git changes, restart Docker containers — all from the dashboard.
-- **🎨 Cyberdeck Aesthetic** — Neon cyan/magenta/green palette, rounded borders, focus states, and clean layouts. Looks like it belongs in a spaceship.
+- **🔮 Zero-Config Auto-Discovery** — Just run `orbital`. It detects git repos, Docker daemons, listening ports, AI CLI tools, and system stats automatically.
+- **⚡ Interactive Widgets** — Not read-only. Kill processes, stage & commit git changes, restart Docker containers, explore disk usage, launch AI tools — all from the dashboard.
+- **🧭 Built-in Disk Explorer** — Press `l` on Disks to drill down into any mount point. Navigate directories, see recursive sizes, delete files — a native `ncdu` replacement.
+- **🤖 AI Intel** — Auto-detects installed AI CLI tools (Claude, Codex, Copilot, Gemini) and lets you launch them with `i`.
+- **🎨 Cyberdeck Aesthetic** — Neon cyan/violet/green palette, braille-resolution graphs, scanline effects, and boot sequence animation.
+- **🔒 Vault** — Quick access to project config files (`.env`, `Cargo.toml`, `package.json`, etc.) with editor launch.
 - **🧩 Modular Trait System** — Every widget implements `WidgetModule`. Drop in new modules without touching the core.
 - **🦀 Single Binary** — Compiled Rust. No runtime dependencies. No interpreters. Just one executable.
 
@@ -43,7 +46,7 @@ cargo install orbital-tui
 Or build from source:
 
 ```bash
-git clone https://github.com/youruser/orbital.git
+git clone https://github.com/MocLG/orbital.git
 cd orbital
 cargo build --release
 ./target/release/orbital
@@ -53,13 +56,16 @@ cargo build --release
 
 | Module | Detection | Interactive Actions |
 |---|---|---|
-| **◈ System** | Always | `Enter` refresh |
+| **◈ System** | Always | CPU/RAM braille graphs, alert on >85% |
 | **◈ Processes** | Always | `↑↓` select, `k` kill process |
-| **◈ Disks** | Always | `↑↓` scroll, `Enter` refresh |
-| **◈ Network** | Always | `↑↓` scroll, `Enter` refresh |
-| **◈ Git** | `.git/` in cwd | `c` commit all, `p` push, `l` toggle log/changes |
-| **◈ Docker** | Docker socket | `r` restart, `s` stop, `u` start container |
-| **◈ Ports** | Always | `↑↓` scroll, `Enter` refresh |
+| **◈ Disks** | Always | `↑↓` scroll, `l` disk explorer |
+| **◈ Network** | Always | RX/TX sparklines |
+| **◈ Git** | `.git/` in cwd | `a` stage/unstage, `e` edit, `c` commit, `p` push, `l` toggle view |
+| **◈ Docker** | Docker socket | `r` restart, `s` stop container |
+| **◈ Ports** | Always | `↑↓` scroll |
+| **◈ Spectre** | Always | Active TCP connections, external IPs highlighted |
+| **◈ Vault** | Config files in cwd | `e` open file in editor |
+| **◈ AI Intel** | AI CLI in $PATH | `i` launch AI tool |
 
 ## Keybindings
 
@@ -71,24 +77,43 @@ cargo build --release
 | `?` | Toggle help overlay |
 | `q` / `Ctrl+C` | Quit |
 
+**Disk Explorer** (press `l` on Disks):
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` / `j` / `k` | Navigate entries |
+| `Enter` | Drill into directory |
+| `Backspace` | Go up one level |
+| `d` | Delete (with confirmation) |
+| `Esc` / `q` | Close explorer |
+
 ## Architecture
 
 ```
 src/
 ├── main.rs          // Terminal setup & teardown
-├── app.rs           // Core loop, layout grid, input routing
+├── app.rs           // Core loop, layout grid, input routing, explorer overlay
 ├── event.rs         // Async event handler (tick + keypress)
 ├── theme.rs         // Cyberdeck color palette & styles
 ├── discovery.rs     // Auto-detection engine
+├── ops/
+│   ├── mod.rs       // Module declarations
+│   └── scanner.rs   // Recursive directory size scanner (jwalk)
+├── ui/
+│   ├── mod.rs       // Module declarations
+│   └── explorer.rs  // Interactive disk explorer overlay
 └── widgets/
-    ├── mod.rs       // WidgetModule trait definition
-    ├── system.rs    // CPU, RAM, uptime gauges
+    ├── mod.rs       // WidgetModule trait + WidgetAction enum
+    ├── system.rs    // CPU, RAM braille graphs
     ├── processes.rs // Top processes with kill support
-    ├── disk.rs      // Disk usage gauges
-    ├── network.rs   // Network interface stats
-    ├── git.rs       // Branch, changes, commits, push
+    ├── disk.rs      // Disk usage gauges + explorer launch
+    ├── network.rs   // Network interface sparklines
+    ├── git.rs       // Staged/changed files, commit, push
     ├── docker.rs    // Container management
-    └── ports.rs     // Listening port scanner
+    ├── ports.rs     // Listening port scanner
+    ├── spectre.rs   // Active TCP connection monitor
+    ├── vault.rs     // Project config file browser
+    └── ai_intel.rs  // AI CLI tool discovery & launch
 ```
 
 ## Requirements
