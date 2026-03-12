@@ -14,9 +14,29 @@ use std::time::{Duration, Instant};
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
+/// A file entry from git status, classified as staged or unstaged.
+#[derive(Clone)]
+struct FileEntry {
+    path: String,
+    display: String,
+    staged: bool,
+    kind: FileKind,
+}
+
+#[derive(Clone, Copy)]
+enum FileKind {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+    Untracked,
+    Other,
+}
+
 struct GitInfo {
     branch: String,
-    changes: Vec<String>,
+    staged: Vec<FileEntry>,
+    changed: Vec<FileEntry>,
     recent_commits: Vec<String>,
     last_action: Option<String>,
 }
@@ -39,7 +59,8 @@ impl GitWidget {
         Self {
             info: GitInfo {
                 branch: String::new(),
-                changes: Vec::new(),
+                staged: Vec::new(),
+                changed: Vec::new(),
                 recent_commits: Vec::new(),
                 last_action: None,
             },
@@ -56,13 +77,49 @@ impl GitWidget {
             .trim()
             .to_string();
 
-        // Status (short)
+        // Parse status into staged and changed
+        self.info.staged.clear();
+        self.info.changed.clear();
+
         if let Some(status) = run_git(&["status", "--porcelain"]) {
-            self.info.changes = status
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|l| l.to_string())
-                .collect();
+            for line in status.lines().filter(|l| l.len() >= 3) {
+                let index_code = line.as_bytes()[0];
+                let worktree_code = line.as_bytes()[1];
+                let file_path = line[3..].to_string();
+
+                // Staged changes (index column)
+                if index_code != b' ' && index_code != b'?' {
+                    let kind = match index_code {
+                        b'M' => FileKind::Modified,
+                        b'A' => FileKind::Added,
+                        b'D' => FileKind::Deleted,
+                        b'R' => FileKind::Renamed,
+                        _ => FileKind::Other,
+                    };
+                    self.info.staged.push(FileEntry {
+                        display: file_path.clone(),
+                        path: file_path.clone(),
+                        staged: true,
+                        kind,
+                    });
+                }
+
+                // Unstaged changes (worktree column)
+                if worktree_code != b' ' {
+                    let kind = match worktree_code {
+                        b'M' => FileKind::Modified,
+                        b'D' => FileKind::Deleted,
+                        b'?' => FileKind::Untracked,
+                        _ => FileKind::Other,
+                    };
+                    self.info.changed.push(FileEntry {
+                        display: file_path.clone(),
+                        path: file_path,
+                        staged: false,
+                        kind,
+                    });
+                }
+            }
         }
 
         // Recent commits
@@ -79,6 +136,70 @@ impl GitWidget {
                 .collect();
         }
     }
+
+    /// Build the flat list of items for the Changes view.
+    /// Returns: (display items for rendering, entry mapping for actions)
+    fn changes_entries(&self) -> Vec<ChangesRow> {
+        let mut rows = Vec::new();
+
+        if !self.info.staged.is_empty() {
+            rows.push(ChangesRow::Header(format!(
+                "── Staged ({}) ──",
+                self.info.staged.len()
+            )));
+            for entry in &self.info.staged {
+                rows.push(ChangesRow::File(entry.clone()));
+            }
+        }
+
+        if !self.info.changed.is_empty() {
+            if !rows.is_empty() {
+                rows.push(ChangesRow::Separator);
+            }
+            rows.push(ChangesRow::Header(format!(
+                "── Changed ({}) ──",
+                self.info.changed.len()
+            )));
+            for entry in &self.info.changed {
+                rows.push(ChangesRow::File(entry.clone()));
+            }
+        }
+
+        if rows.is_empty() {
+            rows.push(ChangesRow::Empty);
+        }
+
+        rows
+    }
+
+    /// Get the file entry at the current selection (Changes view only).
+    fn selected_file(&self) -> Option<FileEntry> {
+        if self.view_mode != ViewMode::Changes {
+            return None;
+        }
+        let idx = self.state.selected()?;
+        let rows = self.changes_entries();
+        match rows.get(idx) {
+            Some(ChangesRow::File(entry)) => Some(entry.clone()),
+            _ => None,
+        }
+    }
+
+    /// Count of selectable rows in current view.
+    fn row_count(&self) -> usize {
+        match self.view_mode {
+            ViewMode::Changes => self.changes_entries().len(),
+            ViewMode::Log => self.info.recent_commits.len(),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum ChangesRow {
+    Header(String),
+    File(FileEntry),
+    Separator,
+    Empty,
 }
 
 impl WidgetModule for GitWidget {
@@ -88,7 +209,7 @@ impl WidgetModule for GitWidget {
 
     fn init(&mut self) {
         self.refresh();
-        if !self.info.changes.is_empty() || !self.info.recent_commits.is_empty() {
+        if self.row_count() > 0 {
             self.state.select(Some(0));
         }
     }
@@ -107,10 +228,8 @@ impl WidgetModule for GitWidget {
             (BorderType::Thick, Theme::border_unfocused(), Theme::title_unfocused())
         };
 
-        let branch_display = format!("[ GIT {} :: {} ]", 
-            if self.view_mode == ViewMode::Changes { "changes" } else { "log" },
-            self.info.branch
-        );
+        let mode_label = if self.view_mode == ViewMode::Changes { "changes" } else { "log" };
+        let branch_display = format!("[ GIT {} :: {} ]", mode_label, self.info.branch);
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -122,40 +241,43 @@ impl WidgetModule for GitWidget {
 
         let items: Vec<ListItem> = match self.view_mode {
             ViewMode::Changes => {
-                if self.info.changes.is_empty() {
-                    vec![ListItem::new(Line::from(Span::styled(
-                        "✓ Working tree clean",
-                        Theme::good(),
-                    )))]
-                } else {
-                    self.info
-                        .changes
-                        .iter()
-                        .map(|c| {
-                            let (indicator, color) = if c.starts_with(" M") || c.starts_with("M ") {
-                                ("~", Theme::AMBER)
-                            } else if c.starts_with("??") {
-                                ("+", Theme::NEON_GREEN)
-                            } else if c.starts_with(" D") || c.starts_with("D ") {
-                                ("-", Theme::RED)
+                let rows = self.changes_entries();
+                rows.iter()
+                    .map(|row| match row {
+                        ChangesRow::Header(text) => ListItem::new(Line::from(Span::styled(
+                            text.clone(),
+                            Theme::accent(),
+                        ))),
+                        ChangesRow::Separator => ListItem::new(Line::from("")),
+                        ChangesRow::Empty => ListItem::new(Line::from(Span::styled(
+                            "✓ Working tree clean",
+                            Theme::good(),
+                        ))),
+                        ChangesRow::File(entry) => {
+                            let (icon, color) = match entry.kind {
+                                FileKind::Modified => ("~", Theme::AMBER),
+                                FileKind::Added | FileKind::Untracked => ("+", Theme::NEON_GREEN),
+                                FileKind::Deleted => ("-", Theme::RED),
+                                FileKind::Renamed => ("→", Theme::BLUE),
+                                FileKind::Other => ("•", Theme::SOFT_WHITE),
+                            };
+                            let stage_indicator = if entry.staged {
+                                Span::styled("● ", Style::default().fg(Theme::NEON_GREEN))
                             } else {
-                                ("•", Theme::SOFT_WHITE)
+                                Span::styled("○ ", Style::default().fg(Theme::DIM))
                             };
                             ListItem::new(Line::from(vec![
+                                Span::raw(" "),
+                                stage_indicator,
                                 Span::styled(
-                                    format!(" {indicator} "),
-                                    Style::default()
-                                        .fg(color)
-                                        .add_modifier(Modifier::BOLD),
+                                    format!("{icon} "),
+                                    Style::default().fg(color).add_modifier(Modifier::BOLD),
                                 ),
-                                Span::styled(
-                                    c.get(3..).unwrap_or(c).to_string(),
-                                    Theme::text(),
-                                ),
+                                Span::styled(entry.display.clone(), Theme::text()),
                             ]))
-                        })
-                        .collect()
-                }
+                        }
+                    })
+                    .collect()
             }
             ViewMode::Log => self
                 .info
@@ -205,10 +327,7 @@ impl WidgetModule for GitWidget {
             }
             KeyCode::Down => {
                 let i = self.state.selected().unwrap_or(0);
-                let max = match self.view_mode {
-                    ViewMode::Changes => self.info.changes.len(),
-                    ViewMode::Log => self.info.recent_commits.len(),
-                };
+                let max = self.row_count();
                 if i + 1 < max {
                     self.state.select(Some(i + 1));
                 }
@@ -222,16 +341,33 @@ impl WidgetModule for GitWidget {
                 self.state.select(Some(0));
                 WidgetAction::None
             }
-            KeyCode::Char('c') => {
-                if !self.info.changes.is_empty() {
-                    let _ = run_git(&["add", "-A"]);
-                    let result = run_git(&["commit", "-m", "chore: quick commit from Orbital"]);
-                    self.info.last_action = Some(
-                        result
-                            .map(|o| o.lines().next().unwrap_or("committed").to_string())
-                            .unwrap_or_else(|| "commit failed".into()),
-                    );
+            KeyCode::Char('e') => {
+                // Open selected file in editor
+                if let Some(entry) = self.selected_file() {
+                    return WidgetAction::SuspendAndEdit(entry.path);
+                }
+                WidgetAction::None
+            }
+            KeyCode::Char('a') => {
+                // Stage or unstage the selected file
+                if let Some(entry) = self.selected_file() {
+                    if entry.staged {
+                        let _ = run_git(&["reset", "HEAD", "--", &entry.path]);
+                        self.info.last_action = Some(format!("Unstaged {}", entry.display));
+                    } else {
+                        let _ = run_git(&["add", "--", &entry.path]);
+                        self.info.last_action = Some(format!("Staged {}", entry.display));
+                    }
                     self.refresh();
+                }
+                WidgetAction::None
+            }
+            KeyCode::Char('c') => {
+                if !self.info.staged.is_empty() {
+                    // Suspend TUI and open editor for commit message
+                    return WidgetAction::SuspendAndRun("git commit".into());
+                } else {
+                    self.info.last_action = Some("Nothing staged to commit".into());
                 }
                 WidgetAction::None
             }
@@ -253,7 +389,7 @@ impl WidgetModule for GitWidget {
     }
 
     fn status_hint(&self) -> String {
-        "↑↓: select  l: toggle view  c: commit all  p: push  Enter: refresh".into()
+        "↑↓: select  a: stage/unstage  e: edit  l: view  c: commit  p: push".into()
     }
 }
 
