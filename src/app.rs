@@ -257,14 +257,14 @@ impl App {
     fn render_header(&self, frame: &mut Frame, area: Rect) {
         let active = self.widgets.iter().filter(|w| w.is_visible()).count();
         let title_text = vec![Line::from(vec![
-            Span::styled("◈ ", Style::default().fg(Theme::MAGENTA)),
+            Span::styled("◈ ", Style::default().fg(Theme::VIOLET)),
             Span::styled(
                 "O R B I T A L",
                 Style::default()
                     .fg(Theme::CYAN)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" ◈", Style::default().fg(Theme::MAGENTA)),
+            Span::styled(" ◈", Style::default().fg(Theme::VIOLET)),
             Span::raw("  "),
             Span::styled(
                 format!("▸ {active} modules active"),
@@ -275,7 +275,7 @@ impl App {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Thick)
-            .border_style(Style::default().fg(Theme::MAGENTA))
+            .border_style(Style::default().fg(Theme::VIOLET))
             .style(Style::default().bg(Theme::BG));
 
         let header = Paragraph::new(title_text).block(block);
