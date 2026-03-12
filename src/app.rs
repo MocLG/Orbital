@@ -116,16 +116,29 @@ impl App {
                             if let Some(w) = self.widgets.get_mut(self.focused) {
                                 match w.handle_input(key) {
                                     WidgetAction::SuspendAndEdit(path) => {
+                                        events.pause();
+
+                                        // Drain any pending crossterm events
+                                        while crossterm::event::poll(std::time::Duration::ZERO)? {
+                                            let _ = crossterm::event::read();
+                                        }
+
                                         // Leave TUI, show cursor, open editor, resume
                                         terminal.show_cursor()?;
                                         terminal.flush()?;
                                         crossterm::terminal::disable_raw_mode()?;
                                         crossterm::execute!(
                                             std::io::stdout(),
+                                            crossterm::event::DisableMouseCapture,
                                             crossterm::terminal::LeaveAlternateScreen,
                                             crossterm::cursor::Show
                                         )?;
                                         std::io::stdout().flush()?;
+
+                                        // Reset terminal state before spawning
+                                        let _ = std::process::Command::new("stty")
+                                            .arg("sane")
+                                            .status();
 
                                         let editor = std::env::var("EDITOR")
                                             .or_else(|_| std::env::var("VISUAL"))
@@ -136,7 +149,7 @@ impl App {
                                         let command = format!("{editor} '{escaped_path}'");
 
                                         let status = std::process::Command::new("sh")
-                                            .arg("-lc")
+                                            .arg("-c")
                                             .arg(command)
                                             .stdin(std::process::Stdio::inherit())
                                             .stdout(std::process::Stdio::inherit())
@@ -146,9 +159,11 @@ impl App {
                                         crossterm::execute!(
                                             std::io::stdout(),
                                             crossterm::terminal::EnterAlternateScreen,
+                                            crossterm::event::EnableMouseCapture,
                                             crossterm::cursor::Hide
                                         )?;
                                         crossterm::terminal::enable_raw_mode()?;
+                                        events.resume();
                                         terminal.clear()?;
                                         terminal.draw(|frame| self.draw(frame))?;
 
@@ -157,18 +172,31 @@ impl App {
                                         }
                                     }
                                     WidgetAction::SuspendAndRun(cmd) => {
+                                        events.pause();
+
+                                        // Drain any pending crossterm events
+                                        while crossterm::event::poll(std::time::Duration::ZERO)? {
+                                            let _ = crossterm::event::read();
+                                        }
+
                                         terminal.show_cursor()?;
                                         terminal.flush()?;
                                         crossterm::terminal::disable_raw_mode()?;
                                         crossterm::execute!(
                                             std::io::stdout(),
+                                            crossterm::event::DisableMouseCapture,
                                             crossterm::terminal::LeaveAlternateScreen,
                                             crossterm::cursor::Show
                                         )?;
                                         std::io::stdout().flush()?;
 
+                                        // Reset terminal state before spawning
+                                        let _ = std::process::Command::new("stty")
+                                            .arg("sane")
+                                            .status();
+
                                         let status = std::process::Command::new("sh")
-                                            .arg("-lc")
+                                            .arg("-c")
                                             .arg(&cmd)
                                             .stdin(std::process::Stdio::inherit())
                                             .stdout(std::process::Stdio::inherit())
@@ -178,9 +206,11 @@ impl App {
                                         crossterm::execute!(
                                             std::io::stdout(),
                                             crossterm::terminal::EnterAlternateScreen,
+                                            crossterm::event::EnableMouseCapture,
                                             crossterm::cursor::Hide
                                         )?;
                                         crossterm::terminal::enable_raw_mode()?;
+                                        events.resume();
                                         terminal.clear()?;
                                         terminal.draw(|frame| self.draw(frame))?;
 
