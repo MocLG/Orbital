@@ -1,9 +1,10 @@
 [package]
-name = "orbital"
-version = "0.1.0"
+name = "orbital-tui"
+version = "1.0.0"
 edition = "2021"
 description = "A zero-config cyberdeck terminal dashboard for developers"
 license = "MIT"
+repository = "https://github.com/MocLG/Orbital"
 keywords = ["tui", "dashboard", "terminal", "ratatui", "cyberdeck"]
 categories = ["command-line-interface"]
 
