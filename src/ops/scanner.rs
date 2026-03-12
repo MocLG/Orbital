@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -75,9 +76,28 @@ impl Scanner {
     }
 }
 
+/// Virtual filesystem mount points that must be skipped entirely.
+const VIRTUAL_FS: &[&str] = &["/proc", "/sys", "/dev", "/run", "/tmp"];
+
+/// Returns true if the path is inside a virtual/pseudo filesystem.
+fn is_virtual_fs(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    VIRTUAL_FS.iter().any(|vfs| s == *vfs || s.starts_with(&format!("{vfs}/")))
+}
+
+/// Get the device ID (st_dev) for a path, used for same-device boundary checks.
+fn device_id(path: &Path) -> Option<u64> {
+    fs::metadata(path).ok().map(|m| m.dev())
+}
+
 /// Scan a single directory level, computing recursive sizes for subdirectories.
+/// Stays on the same filesystem device as `dir` (like `ncdu -x`).
 fn scan_directory(dir: &Path) -> Result<ScanResult, String> {
     let read_dir = fs::read_dir(dir).map_err(|e| format!("Cannot read {}: {}", dir.display(), e))?;
+
+    // Get the device ID of the directory we're scanning so we can
+    // skip mount points for other filesystems.
+    let root_dev = device_id(dir);
 
     let mut entries = Vec::new();
     let mut total_size: u64 = 0;
@@ -85,6 +105,11 @@ fn scan_directory(dir: &Path) -> Result<ScanResult, String> {
     for entry in read_dir.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip virtual filesystems entirely
+        if is_virtual_fs(&path) {
+            continue;
+        }
 
         let meta = match fs::symlink_metadata(&path) {
             Ok(m) => m,
@@ -95,8 +120,17 @@ fn scan_directory(dir: &Path) -> Result<ScanResult, String> {
         let modified = meta.modified().ok();
         let readonly = meta.permissions().readonly();
 
+        // Same-device check: skip dirs that are on a different filesystem
+        if is_dir {
+            if let Some(root) = root_dev {
+                if meta.dev() != root {
+                    continue;
+                }
+            }
+        }
+
         let size = if is_dir {
-            dir_size_jwalk(&path)
+            dir_size_jwalk(&path, root_dev)
         } else {
             meta.len()
         };
@@ -123,11 +157,40 @@ fn scan_directory(dir: &Path) -> Result<ScanResult, String> {
     })
 }
 
+/// Maximum depth for recursive scanning (safety limit for first pass).
+const MAX_SCAN_DEPTH: usize = 10;
+
 /// Use jwalk for fast parallel recursive directory size calculation.
-fn dir_size_jwalk(path: &Path) -> u64 {
+/// Respects device boundary and skips virtual FS paths.
+fn dir_size_jwalk(path: &Path, root_dev: Option<u64>) -> u64 {
     jwalk::WalkDir::new(path)
         .skip_hidden(false)
         .follow_links(false)
+        .max_depth(MAX_SCAN_DEPTH)
+        .process_read_dir(move |_depth, _path, _state, children| {
+            children.retain(|child_result| {
+                if let Ok(child) = child_result {
+                    let child_path = child.path();
+
+                    // Skip virtual filesystems
+                    if is_virtual_fs(&child_path) {
+                        return false;
+                    }
+
+                    // Skip cross-device mount points
+                    if child.file_type.is_dir() {
+                        if let Some(root) = root_dev {
+                            if let Ok(m) = fs::symlink_metadata(&child_path) {
+                                if m.dev() != root {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+                true
+            });
+        })
         .into_iter()
         .filter_map(|e| e.ok())
         .filter_map(|e| e.metadata().ok())
