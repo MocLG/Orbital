@@ -1,6 +1,6 @@
 [package]
 name = "orbital-tui"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 description = "A zero-config cyberdeck terminal dashboard for developers"
 license = "MIT"
